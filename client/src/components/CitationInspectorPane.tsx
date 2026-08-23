@@ -58,7 +58,7 @@ function formatClientCitation(citation: any, style: CitationStyle) {
   };
 }
 
-export const CitationInspectorPane: React.FC<CitationInspectorPaneProps> = ({
+export const CitationInspectorPane: React.FC<CitationInspectorPaneProps> = React.memo(({ 
   citation,
   onClose,
   onEdit,
@@ -455,4 +455,4 @@ export const CitationInspectorPane: React.FC<CitationInspectorPaneProps> = ({
       </div>
     </aside>
   );
-};
+});

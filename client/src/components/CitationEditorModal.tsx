@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface AuthorInput {
   firstName: string;
@@ -9,19 +10,21 @@ interface CitationEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   citation: any | null;
-  token: string | null;
+  token?: string | null;
   onSaved: () => void;
   showToast: (msg: string) => void;
 }
 
-export const CitationEditorModal: React.FC<CitationEditorModalProps> = ({
+export const CitationEditorModal: React.FC<CitationEditorModalProps> = React.memo(({
   isOpen,
   onClose,
   citation,
-  token,
+  token: propToken,
   onSaved,
   showToast,
 }) => {
+  const { token: authToken } = useAuth();
+  const token = propToken !== undefined ? propToken : authToken;
   const [title, setTitle] = useState("");
   const [authors, setAuthors] = useState<AuthorInput[]>([{ firstName: "", lastName: "" }]);
   const [year, setYear] = useState<string>("");
@@ -347,4 +350,4 @@ export const CitationEditorModal: React.FC<CitationEditorModalProps> = ({
       </div>
     </div>
   );
-};
+});

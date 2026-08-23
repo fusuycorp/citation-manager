@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface NavbarProps {
-  user: { email: string; firstName: string; lastName: string; role: string } | null;
-  onOpenAuth: () => void;
-  onLogout: () => void;
+  user?: { email: string; firstName?: string; lastName?: string; role?: string } | null;
+  onOpenAuth?: () => void;
+  onLogout?: () => void;
   onNavigatePage: (page: "dashboard" | "admin" | "settings" | "auth" | "help" | "profile") => void;
   onNavigateProfile?: (idOrName: string) => void;
   theme: "light" | "dark";
@@ -11,43 +12,94 @@ interface NavbarProps {
   currentPage: string;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  user,
+export const Navbar: React.FC<NavbarProps> = React.memo(({
+  user: propUser,
   onOpenAuth,
-  onLogout,
+  onLogout: propOnLogout,
   onNavigatePage,
   onNavigateProfile,
   theme,
   onToggleTheme,
   currentPage,
 }) => {
+  const { user: authUser, logout: authLogout } = useAuth();
+  const user = propUser !== undefined ? propUser : authUser;
+  const handleLogout = propOnLogout || authLogout;
+
   const [profileSearchQuery, setProfileSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const handleProfileSearch = async (val: string) => {
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (searchAbortRef.current) searchAbortRef.current.abort();
+    };
+  }, []);
+
+  const handleProfileSearch = (val: string) => {
     setProfileSearchQuery(val);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+
     if (!val.trim()) {
       setSearchResults([]);
       setShowDropdown(false);
       return;
     }
 
-    try {
-      const res = await fetch(`/api/profiles/search?q=${encodeURIComponent(val.trim())}`);
-      const data = await res.json();
-      if (res.ok) {
-        setSearchResults(data.results || []);
-        setShowDropdown(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+
+      try {
+        const res = await fetch(`/api/profiles/search?q=${encodeURIComponent(val.trim())}`, {
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (res.ok && !controller.signal.aborted) {
+          setSearchResults(data.results || []);
+          setShowDropdown(true);
+        }
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          // Ignore network errors or aborted fetches
+        }
       }
-    } catch (_) {}
+    }, 300);
   };
 
   const handleSelectSearchResult = (res: any) => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (searchAbortRef.current) searchAbortRef.current.abort();
     setProfileSearchQuery("");
     setShowDropdown(false);
     if (onNavigateProfile) {
       onNavigateProfile(res.identifier);
+    }
+  };
+
+  const handleClearSearch = () => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (searchAbortRef.current) searchAbortRef.current.abort();
+    setProfileSearchQuery("");
+    setSearchResults([]);
+    setShowDropdown(false);
+  };
+
+  const handleLoginClick = () => {
+    if (onOpenAuth) {
+      onOpenAuth();
+    } else {
+      onNavigatePage("auth");
     }
   };
 
@@ -87,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {profileSearchQuery && (
             <button
               type="button"
-              onClick={() => { setProfileSearchQuery(""); setShowDropdown(false); }}
+              onClick={handleClearSearch}
               style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.75rem" }}
             >
               <i className="fa-solid fa-xmark"></i>
@@ -208,12 +260,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
 
-              <button className="btn btn-secondary btn-sm" onClick={onLogout} title="Logout" style={{ padding: "0.45rem 0.6rem" }}>
+              <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Logout" style={{ padding: "0.45rem 0.6rem" }}>
                 <i className="fa-solid fa-right-from-bracket"></i>
               </button>
             </>
           ) : (
-            <button className="btn btn-primary btn-sm" onClick={onOpenAuth}>
+            <button className="btn btn-primary btn-sm" onClick={handleLoginClick}>
               <i className="fa-solid fa-user"></i> Login / Register
             </button>
           )}
@@ -221,4 +273,4 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
     </header>
   );
-};
+});

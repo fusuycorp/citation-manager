@@ -1,22 +1,25 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface CoAuthorInviteModalProps {
   isOpen: boolean;
   onClose: () => void;
   citation: any | null;
-  token: string | null;
+  token?: string | null;
   showToast: (msg: string) => void;
   onOwnershipChanged: () => void;
 }
 
-export const CoAuthorInviteModal: React.FC<CoAuthorInviteModalProps> = ({
+export const CoAuthorInviteModal: React.FC<CoAuthorInviteModalProps> = React.memo(({
   isOpen,
   onClose,
   citation,
-  token,
+  token: propToken,
   showToast,
   onOwnershipChanged,
 }) => {
+  const { token: authToken } = useAuth();
+  const token = propToken !== undefined ? propToken : authToken;
   const [matchingUsers, setMatchingUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -232,4 +235,4 @@ export const CoAuthorInviteModal: React.FC<CoAuthorInviteModalProps> = ({
       </div>
     </div>
   );
-};
+});

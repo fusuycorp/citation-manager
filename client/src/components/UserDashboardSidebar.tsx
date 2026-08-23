@@ -29,7 +29,7 @@ interface UserDashboardSidebarProps {
   onOpenInvites: () => void;
 }
 
-export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = ({
+export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = React.memo(({
   activeScope,
   onScopeChange,
   selectedPubType,
@@ -60,6 +60,26 @@ export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [width, setWidth] = useState(270);
   const isResizing = useRef(false);
+
+  // Debouncing for dual-thumb slider
+  const sliderDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sliderDebounceTimer.current) {
+        clearTimeout(sliderDebounceTimer.current);
+      }
+    };
+  }, []);
+
+  const debouncedSelectYearRange = (min: number, max: number) => {
+    if (sliderDebounceTimer.current) {
+      clearTimeout(sliderDebounceTimer.current);
+    }
+    sliderDebounceTimer.current = setTimeout(() => {
+      onSelectYearRange(min, max);
+    }, 250);
+  };
 
   // Author Search Autocomplete & Focus State
   const [authorSearchInput, setAuthorSearchInput] = useState("");
@@ -555,7 +575,7 @@ export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = ({
                       onChange={(e) => {
                         const newMin = Math.min(parseInt(e.target.value, 10), sliderMax);
                         setSliderMin(newMin);
-                        onSelectYearRange(newMin, sliderMax);
+                        debouncedSelectYearRange(newMin, sliderMax);
                       }}
                       onFocus={() => setActiveThumb("start")}
                       style={{
@@ -594,7 +614,7 @@ export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = ({
                       onChange={(e) => {
                         const newMax = Math.max(parseInt(e.target.value, 10), sliderMin);
                         setSliderMax(newMax);
-                        onSelectYearRange(sliderMin, newMax);
+                        debouncedSelectYearRange(sliderMin, newMax);
                       }}
                       onFocus={() => setActiveThumb("end")}
                       style={{
@@ -738,4 +758,4 @@ export const UserDashboardSidebar: React.FC<UserDashboardSidebarProps> = ({
       </div>
     </aside>
   );
-};
+});

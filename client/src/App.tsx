@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { AuthModal } from "./components/AuthModal";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CitationEditorModal } from "./components/CitationEditorModal";
 import { CitationInspectorPane } from "./components/CitationInspectorPane";
 import { CitationList } from "./components/CitationList";
@@ -8,6 +7,7 @@ import { CoAuthorInviteModal } from "./components/CoAuthorInviteModal";
 import { Navbar } from "./components/Navbar";
 import { UserDashboardSidebar } from "./components/UserDashboardSidebar";
 import { WelcomeModal } from "./components/WelcomeModal";
+import { useAuth } from "./context/AuthContext";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
 import { AuthPage } from "./pages/AuthPage";
 import { HelpPage } from "./pages/HelpPage";
@@ -46,6 +46,9 @@ function parseHashRoute(): { page: "dashboard" | "admin" | "settings" | "auth" |
 
 export const App: React.FC = () => {
   const initialRoute = parseHashRoute();
+
+  // Auth Context (eliminates prop drilling)
+  const { user, token, login, logout, updateUser } = useAuth();
   
   // Page Routing State: "dashboard" | "admin" | "settings" | "auth" | "help" | "profile"
   const [currentPage, setCurrentPage] = useState<"dashboard" | "admin" | "settings" | "auth" | "help" | "profile">(initialRoute.page);
@@ -55,21 +58,14 @@ export const App: React.FC = () => {
 
   // Dynamic Browser / OS System Theme Default
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme());
-  const [user, setUser] = useState<any | null>(null);
-  const [token, setToken] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("citation_token");
-    } catch (_) {
-      return null;
-    }
-  });
 
   const [citations, setCitations] = useState<any[]>([]);
   const [activeScope, setActiveScope] = useState<"my" | "unowned" | "all">("all");
   const [selectedPubType, setSelectedPubType] = useState<string | null>(null);
 
-  // Search & Facet Filters State
+  // Search & Debounced Search Query State
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   
   // Multi-Author List & Active Filter State
   const [authorList, setAuthorList] = useState<string[]>([]);
@@ -103,7 +99,6 @@ export const App: React.FC = () => {
 
   // Modals
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingCitation, setEditingCitation] = useState<any | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -113,13 +108,21 @@ export const App: React.FC = () => {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
-  };
+  }, []);
+
+  // Debounce search query updates with 300ms timeout
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Browser Navigation & History Sync
-  const navigateToPage = (pg: "dashboard" | "admin" | "settings" | "auth" | "help" | "profile", target?: string) => {
+  const navigateToPage = useCallback((pg: "dashboard" | "admin" | "settings" | "auth" | "help" | "profile", target?: string) => {
     setCurrentPage(pg);
     if (pg === "profile" && target) {
       setProfileTarget(target);
@@ -128,19 +131,19 @@ export const App: React.FC = () => {
       setProfileTarget("");
       window.location.hash = pg;
     }
-  };
+  }, []);
 
-  const handleNavigateProfile = (idOrName: string) => {
+  const handleNavigateProfile = useCallback((idOrName: string) => {
     navigateToPage("profile", idOrName);
-  };
+  }, [navigateToPage]);
 
-  const handleBackNavigation = () => {
+  const handleBackNavigation = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       window.history.back();
     } else {
       navigateToPage("dashboard");
     }
-  };
+  }, [navigateToPage]);
 
   // Sync state with browser back/forward buttons (popstate & hashchange)
   useEffect(() => {
@@ -178,27 +181,10 @@ export const App: React.FC = () => {
     }
   }, [user]);
 
+  // Sync user state changes with active scope & load preferences / invitations
   useEffect(() => {
     if (token) {
-      fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error("Session expired");
-          return res.json();
-        })
-        .then((data) => {
-          setUser(data.user);
-          setActiveScope("my");
-        })
-        .catch(() => {
-          try {
-            localStorage.removeItem("citation_token");
-          } catch (_) {}
-          setToken(null);
-          setUser(null);
-          setActiveScope("all");
-        });
+      setActiveScope("my");
 
       fetch("/api/preferences", {
         headers: { Authorization: `Bearer ${token}` },
@@ -219,10 +205,29 @@ export const App: React.FC = () => {
           }
         })
         .catch(() => {});
+    } else {
+      setActiveScope("all");
     }
   }, [token]);
 
-  const fetchCitations = async () => {
+  // In-flight request controller ref
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  const fetchCitations = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     try {
       const headers: Record<string, string> = {};
@@ -247,12 +252,12 @@ export const App: React.FC = () => {
 
       const authorParam = activeAuthors.length > 0 ? activeAuthors.join("||") : "";
 
-      let url = `/api/citations?scope=${activeScope}&search=${encodeURIComponent(searchQuery)}&author=${encodeURIComponent(authorParam)}&year=${encodeURIComponent(yearParam)}&journal=${encodeURIComponent(journalFilter)}&sortBy=${sortBy}&sortOrder=${sortOrder}&page=${page}&limit=${limit}`;
+      let url = `/api/citations?scope=${activeScope}&search=${encodeURIComponent(debouncedSearchQuery)}&author=${encodeURIComponent(authorParam)}&year=${encodeURIComponent(yearParam)}&journal=${encodeURIComponent(journalFilter)}&sortBy=${sortBy}&sortOrder=${sortOrder}&page=${page}&limit=${limit}`;
       if (selectedPubType) url += `&pubType=${selectedPubType}`;
 
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, { headers, signal: controller.signal });
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && !controller.signal.aborted) {
         const fetched = data.citations || [];
         setCitations(fetched);
         setPagination(data.pagination || { total: 0, totalPages: 1 });
@@ -267,55 +272,57 @@ export const App: React.FC = () => {
           setAvailableAuthors(data.filterOptions.availableAuthors || []);
         }
 
-        if (!inspectedCitation && fetched.length > 0) {
-          setInspectedCitation(fetched[0]);
+        if (fetched.length > 0) {
+          setInspectedCitation((prev: any) => prev || fetched[0]);
         }
       }
-    } catch (_) {
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        // Ignored aborted network requests
+        return;
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
-  };
+  }, [token, activeScope, debouncedSearchQuery, activeAuthors, selectedYears, journalFilter, sortBy, sortOrder, selectedPubType, page, limit]);
 
   useEffect(() => {
     if (currentPage === "dashboard") {
       fetchCitations();
     }
-  }, [token, activeScope, searchQuery, activeAuthors, selectedYears, journalFilter, sortBy, sortOrder, selectedPubType, page, limit, currentPage]);
+  }, [currentPage, fetchCitations]);
 
-  const handleAddAuthor = (auth: string) => {
-    if (!authorList.includes(auth)) {
-      setAuthorList((prev) => [...prev, auth]);
-    }
-    if (!activeAuthors.includes(auth)) {
-      setActiveAuthors((prev) => [...prev, auth]);
-    }
+  const handleAddAuthor = useCallback((auth: string) => {
+    setAuthorList((prev) => (!prev.includes(auth) ? [...prev, auth] : prev));
+    setActiveAuthors((prev) => (!prev.includes(auth) ? [...prev, auth] : prev));
     setPage(1);
-  };
+  }, []);
 
-  const handleToggleAuthorActive = (auth: string) => {
+  const handleToggleAuthorActive = useCallback((auth: string) => {
     setActiveAuthors((prev) => (prev.includes(auth) ? prev.filter((item) => item !== auth) : [...prev, auth]));
     setPage(1);
-  };
+  }, []);
 
-  const handleDeleteAuthor = (auth: string) => {
+  const handleDeleteAuthor = useCallback((auth: string) => {
     setAuthorList((prev) => prev.filter((item) => item !== auth));
     setActiveAuthors((prev) => prev.filter((item) => item !== auth));
     setPage(1);
-  };
+  }, []);
 
-  const handleClearAuthors = () => {
+  const handleClearAuthors = useCallback(() => {
     setAuthorList([]);
     setActiveAuthors([]);
     setPage(1);
-  };
+  }, []);
 
-  const handleToggleYear = (y: number) => {
+  const handleToggleYear = useCallback((y: number) => {
     setSelectedYears((prev) => (prev.includes(y) ? prev.filter((item) => item !== y) : [...prev, y]));
     setPage(1);
-  };
+  }, []);
 
-  const handleSelectYearRange = (startYear: number, endYear: number) => {
+  const handleSelectYearRange = useCallback((startYear: number, endYear: number) => {
     const minY = Math.min(startYear, endYear);
     const maxY = Math.max(startYear, endYear);
     const years: number[] = [];
@@ -324,10 +331,11 @@ export const App: React.FC = () => {
     }
     setSelectedYears(years);
     setPage(1);
-  };
+  }, []);
 
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setSearchQuery("");
+    setDebouncedSearchQuery("");
     setAuthorList([]);
     setActiveAuthors([]);
     setSelectedYears([]);
@@ -336,31 +344,29 @@ export const App: React.FC = () => {
     setSortBy("created_at");
     setSortOrder("DESC");
     setPage(1);
-  };
+  }, []);
 
-  const handleAuthSuccess = (userData: any, userToken: string) => {
-    setUser(userData);
-    setToken(userToken);
-    try {
-      localStorage.setItem("citation_token", userToken);
-    } catch (_) {}
+  const handleClearSearchQuery = useCallback(() => {
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+    setPage(1);
+  }, []);
+
+  const handleAuthSuccess = useCallback((userData: any, userToken: string) => {
+    login(userData, userToken);
     setActiveScope("my");
     navigateToPage("dashboard");
-  };
+  }, [login, navigateToPage]);
 
-  const handleLogout = () => {
-    setUser(null);
-    setToken(null);
-    try {
-      localStorage.removeItem("citation_token");
-    } catch (_) {}
+  const handleLogout = useCallback(() => {
+    logout();
     setActiveScope("all");
     setInspectedCitation(null);
     navigateToPage("dashboard");
     showToast("Logged out successfully.");
-  };
+  }, [logout, navigateToPage, showToast]);
 
-  const handleOpenPreview = async (cit: any) => {
+  const handleOpenPreview = useCallback(async (cit: any) => {
     try {
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -373,27 +379,27 @@ export const App: React.FC = () => {
         setIsPreviewOpen(true);
       }
     } catch (_) {}
-  };
+  }, [token]);
 
-  const handleOpenEdit = (cit: any) => {
+  const handleOpenEdit = useCallback((cit: any) => {
     if (!token) {
       navigateToPage("auth");
       return;
     }
     setEditingCitation(cit);
     setIsEditorOpen(true);
-  };
+  }, [token, navigateToPage]);
 
-  const handleOpenInvite = (cit: any) => {
+  const handleOpenInvite = useCallback((cit: any) => {
     if (!token) {
       navigateToPage("auth");
       return;
     }
     setInvitingCitation(cit);
     setIsInviteOpen(true);
-  };
+  }, [token, navigateToPage]);
 
-  const handleClaim = async (citationId: string) => {
+  const handleClaim = useCallback(async (citationId: string) => {
     if (!token) {
       navigateToPage("auth");
       return;
@@ -411,9 +417,9 @@ export const App: React.FC = () => {
         showToast(`Error: ${data.error}`);
       }
     } catch (_) {}
-  };
+  }, [token, navigateToPage, showToast, fetchCitations]);
 
-  const handleUnlink = async (citationId: string) => {
+  const handleUnlink = useCallback(async (citationId: string) => {
     if (!token) return;
     if (!confirm("Remove this citation from your profile? If no other owners remain, it will be placed in the Unowned state.")) return;
 
@@ -428,14 +434,21 @@ export const App: React.FC = () => {
         fetchCitations();
       }
     } catch (_) {}
-  };
+  }, [token, showToast, fetchCitations]);
 
-  const hasActiveFilters = searchQuery || authorList.length > 0 || selectedYears.length > 0 || journalFilter || selectedPubType || sortBy !== "created_at" || sortOrder !== "DESC";
+  const hasActiveFilters = !!(
+    searchQuery ||
+    authorList.length > 0 ||
+    selectedYears.length > 0 ||
+    journalFilter ||
+    selectedPubType ||
+    sortBy !== "created_at" ||
+    sortOrder !== "DESC"
+  );
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Navbar
-        user={user}
         onOpenAuth={() => navigateToPage("auth")}
         onLogout={handleLogout}
         onNavigatePage={(pg) => navigateToPage(pg)}
@@ -454,7 +467,6 @@ export const App: React.FC = () => {
       {/* Pages */}
       {currentPage === "admin" && (
         <AdminDashboardPage
-          token={token}
           showToast={showToast}
           onBackToDashboard={handleBackNavigation}
         />
@@ -462,10 +474,7 @@ export const App: React.FC = () => {
 
       {currentPage === "settings" && user && (
         <UserSettingsPage
-          user={user}
-          token={token}
           showToast={showToast}
-          onUpdateUser={(updated) => setUser(updated)}
           onBackToDashboard={handleBackNavigation}
         />
       )}
@@ -473,8 +482,6 @@ export const App: React.FC = () => {
       {currentPage === "profile" && (
         <ProfilePage
           identifier={profileTarget}
-          token={token}
-          currentUserId={user ? user.id : null}
           onBackToDashboard={handleBackNavigation}
           onNavigateProfile={handleNavigateProfile}
           onFilterByAuthor={(authorName) => {
@@ -565,10 +572,7 @@ export const App: React.FC = () => {
                 {searchQuery && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setPage(1);
-                    }}
+                    onClick={handleClearSearchQuery}
                     style={{
                       position: "absolute",
                       right: 12,
@@ -656,7 +660,7 @@ export const App: React.FC = () => {
                 {searchQuery && (
                   <span className="badge badge-owner" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                     Keyword: "{searchQuery}"
-                    <i className="fa-solid fa-xmark" style={{ cursor: "pointer" }} onClick={() => setSearchQuery("")}></i>
+                    <i className="fa-solid fa-xmark" style={{ cursor: "pointer" }} onClick={handleClearSearchQuery}></i>
                   </span>
                 )}
                 {activeAuthors.length > 0 && (
@@ -698,7 +702,6 @@ export const App: React.FC = () => {
             ) : (
               <CitationList
                 citations={citations}
-                currentUserId={user ? user.id : null}
                 viewDensity={viewDensity}
                 inspectedCitationId={inspectedCitation?.id}
                 onSelectCitation={(cit) => setInspectedCitation(cit)}
@@ -840,18 +843,10 @@ export const App: React.FC = () => {
       />
 
       {/* Modals */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onSuccess={handleAuthSuccess}
-        showToast={showToast}
-      />
-
       <CitationEditorModal
         isOpen={isEditorOpen}
         onClose={() => setIsEditorOpen(false)}
         citation={editingCitation}
-        token={token}
         onSaved={fetchCitations}
         showToast={showToast}
       />
@@ -860,7 +855,6 @@ export const App: React.FC = () => {
         isOpen={isInviteOpen}
         onClose={() => setIsInviteOpen(false)}
         citation={invitingCitation}
-        token={token}
         showToast={showToast}
         onOwnershipChanged={fetchCitations}
       />

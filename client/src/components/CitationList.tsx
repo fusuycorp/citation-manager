@@ -1,8 +1,9 @@
 import React from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface CitationListProps {
   citations: any[];
-  currentUserId: string | null;
+  currentUserId?: string | null;
   viewDensity: "card" | "compact";
   inspectedCitationId?: string | null;
   onSelectCitation: (citation: any) => void;
@@ -15,9 +16,9 @@ interface CitationListProps {
   showToast: (msg: string) => void;
 }
 
-export const CitationList: React.FC<CitationListProps> = ({
+export const CitationList: React.FC<CitationListProps> = React.memo(({
   citations,
-  currentUserId,
+  currentUserId: propCurrentUserId,
   viewDensity,
   inspectedCitationId,
   onSelectCitation,
@@ -29,6 +30,9 @@ export const CitationList: React.FC<CitationListProps> = ({
   onNavigateProfile,
   showToast,
 }) => {
+  const { user } = useAuth();
+  const currentUserId = propCurrentUserId !== undefined ? propCurrentUserId : (user?.id || null);
+
   if (!citations || citations.length === 0) {
     return (
       <div className="glass-panel" style={{ textAlign: "center", padding: "3.5rem 2rem", borderRadius: "var(--radius-lg)", color: "var(--text-muted)" }}>
@@ -260,4 +264,4 @@ export const CitationList: React.FC<CitationListProps> = ({
       })}
     </div>
   );
-};
+});

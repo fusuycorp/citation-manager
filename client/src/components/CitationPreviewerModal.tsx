@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { CitationStyle } from "../../server/formatter";
+export type CitationStyle = "APA7" | "IEEE" | "MLA9" | "Chicago17" | "Harvard" | "BibTeX" | "RIS" | "CSL-JSON";
 
 interface CitationPreviewerModalProps {
   isOpen: boolean;
@@ -8,7 +8,7 @@ interface CitationPreviewerModalProps {
   showToast: (msg: string) => void;
 }
 
-export const CitationPreviewerModal: React.FC<CitationPreviewerModalProps> = ({
+export const CitationPreviewerModal: React.FC<CitationPreviewerModalProps> = React.memo(({ 
   isOpen,
   onClose,
   citation,
@@ -180,4 +180,4 @@ export const CitationPreviewerModal: React.FC<CitationPreviewerModalProps> = ({
       </div>
     </div>
   );
-};
+});

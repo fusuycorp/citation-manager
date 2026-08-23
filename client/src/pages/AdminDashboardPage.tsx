@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface AdminDashboardPageProps {
-  token: string | null;
+  token?: string | null;
   showToast: (msg: string) => void;
   onBackToDashboard: () => void;
 }
 
 export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
-  token,
+  token: propToken,
   showToast,
   onBackToDashboard,
 }) => {
+  const { token: authToken } = useAuth();
+  const token = propToken !== undefined ? propToken : authToken;
   const [activeTab, setActiveTab] = useState<"metrics" | "domains" | "users" | "duplicates" | "audit">("metrics");
   const [metrics, setMetrics] = useState<any | null>(null);
   const [domains, setDomains] = useState<any[]>([]);
