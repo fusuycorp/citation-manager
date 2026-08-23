@@ -1,0 +1,1 @@
+{"timestamp": "2026-08-23T14:09:42.536884+00:00", "action": "full-codebase-remediation", "summary": "Fixed critical security vulns, killed frontend prop-drilling with AuthContext, patched citation logic", "files": ["server/middleware.ts", "client/src/App.tsx", "server/formatter.ts"], "branch": "main", "author": "devhax"}
