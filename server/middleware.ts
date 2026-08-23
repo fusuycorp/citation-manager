@@ -1,5 +1,5 @@
 import { Context, Next } from "hono";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 
 export interface UserSession {
@@ -10,7 +10,7 @@ export interface UserSession {
   role: string;
 }
 
-const JWT_SECRET = "citation_manager_secret_key_2026_antigravity";
+const JWT_SECRET = process.env.JWT_SECRET || "citation_manager_secret_key_2026_antigravity";
 
 export function signToken(payload: UserSession): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
@@ -25,7 +25,12 @@ export function verifyToken(token: string): UserSession | null {
     if (parts.length !== 3) return null;
     const [header, body, signature] = parts;
     const expectedSig = createHmac("sha256", JWT_SECRET).update(`${header}.${body}`).digest("base64url");
-    if (signature !== expectedSig) return null;
+
+    const sigBuf = Buffer.from(signature);
+    const expSigBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expSigBuf.length || !timingSafeEqual(sigBuf, expSigBuf)) {
+      return null;
+    }
 
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
     if (payload.exp && Date.now() > payload.exp) return null;

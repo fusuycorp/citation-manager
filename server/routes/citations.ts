@@ -135,6 +135,18 @@ citations.get("/", optionalAuthMiddleware, (c) => {
 
   const rows = db.prepare(fetchSql).all(...streamParams, limit, offset) as any[];
 
+  // Batch query to resolve N+1 query loop for citation ownership checks
+  const userOwnedCitationIds = new Set<string>();
+  if (user && rows.length > 0) {
+    const placeholders = rows.map(() => "?").join(",");
+    const ownedRows = db
+      .prepare(`SELECT citation_id FROM user_citations WHERE user_id = ? AND citation_id IN (${placeholders})`)
+      .all(user.id, ...rows.map((r) => r.id)) as { citation_id: string }[];
+    for (const row of ownedRows) {
+      userOwnedCitationIds.add(row.citation_id);
+    }
+  }
+
   // Attach ownership and pre-rendered CSL formats
   const formattedCitations = rows.map((r) => {
     const authors = parseAuthors(r.authors);
@@ -154,13 +166,7 @@ citations.get("/", optionalAuthMiddleware, (c) => {
       createdAt: r.created_at,
     };
 
-    let isOwner = false;
-    if (user) {
-      const ownerCheck = db
-        .prepare("SELECT 1 FROM user_citations WHERE user_id = ? AND citation_id = ?")
-        .get(user.id, r.id);
-      isOwner = !!ownerCheck;
-    }
+    const isOwner = user ? userOwnedCitationIds.has(r.id) : false;
 
     const styles: CitationStyle[] = ["APA7", "IEEE", "MLA9", "Chicago17", "BibTeX", "RIS", "CSL-JSON"];
     const formats: Record<string, any> = {};
@@ -372,13 +378,26 @@ citations.put("/:id", authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
-// POST /api/citations/:id/claim - Claim unowned or co-own citation
+// POST /api/citations/:id/claim - Claim unowned citation
 citations.post("/:id/claim", authMiddleware, (c) => {
   const user = c.get("user") as UserSession;
   const { id } = c.req.param();
 
+  const citation = db.prepare("SELECT id FROM citations WHERE id = ?").get(id);
+  if (!citation) {
+    return c.json({ error: "Citation not found" }, 404);
+  }
+
   const existing = db.prepare("SELECT 1 FROM user_citations WHERE user_id = ? AND citation_id = ?").get(user.id, id);
-  if (existing) return c.json({ error: "You already own this citation" }, 400);
+  if (existing) {
+    return c.json({ error: "You already own this citation" }, 400);
+  }
+
+  // IDOR protection: only unowned citations can be claimed directly without invitation
+  const isClaimed = db.prepare("SELECT 1 FROM user_citations WHERE citation_id = ?").get(id);
+  if (isClaimed) {
+    return c.json({ error: "Forbidden: Citation is already owned by another user" }, 403);
+  }
 
   db.prepare("INSERT INTO user_citations (user_id, citation_id) VALUES (?, ?)").run(user.id, id);
   return c.json({ success: true, message: "Citation claimed successfully" });

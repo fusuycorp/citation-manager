@@ -126,11 +126,39 @@ export function initDB() {
     );
   `);
 
+  // Secondary Indexes for fast lookups, joins, and filtering
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_year ON citations(year);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_pub_type ON citations(pub_type);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_created_at ON citations(created_at);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_journal ON citations(journal_or_publisher);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_doi ON citations(doi);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_citations_title ON citations(title);");
+
+  db.run("CREATE INDEX IF NOT EXISTS idx_user_citations_citation_id ON user_citations(citation_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_user_citations_user_id ON user_citations(user_id);");
+
+  db.run("CREATE INDEX IF NOT EXISTS idx_invitations_citation_id ON invitations(citation_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_invitations_invited_email ON invitations(invited_email);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_invitations_inviter_user_id ON invitations(inviter_user_id);");
+
   // Seed default whitelisted domains
   const insertDomain = db.prepare("INSERT OR IGNORE INTO whitelisted_domains (id, domain, policy_type) VALUES (?, ?, ?)");
   insertDomain.run("domain-1", "bogazici.edu.tr", "EXACT");
   insertDomain.run("domain-2", "gmail.com", "EXACT");
   insertDomain.run("domain-3", "*.ac.uk", "WILDCARD");
+
+  // Seed default admin if not exists
+  const adminEmail = "admin@bogazici.edu.tr";
+  const adminUser = db.prepare("SELECT id FROM users WHERE email = ?").get(adminEmail);
+  if (!adminUser) {
+    const adminId = crypto.randomUUID();
+    const defaultPasswordHash = Bun.password.hashSync("password123");
+    db.prepare(`
+      INSERT INTO users (id, email, first_name, last_name, password_hash, role)
+      VALUES (?, ?, 'System', 'Admin', ?, 'admin')
+      ON CONFLICT(email) DO NOTHING
+    `).run(adminId, adminEmail, defaultPasswordHash);
+  }
 }
 
 // Run DB Init

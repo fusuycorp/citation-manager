@@ -6,21 +6,24 @@ const auth = new Hono();
 
 // Helper to check domain whitelist with EXACT and WILDCARD pattern support
 export function isDomainWhitelisted(email: string): boolean {
-  if (!email.includes("@")) return false;
-  const domain = email.split("@")[1].toLowerCase().trim();
+  if (!email || typeof email !== "string" || !email.includes("@")) return false;
+  const parts = email.split("@");
+  if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) return false;
+  const domain = parts[1].toLowerCase().trim();
 
   const rows = db.prepare("SELECT domain, policy_type FROM whitelisted_domains").all() as any[];
 
   for (const row of rows) {
-    const pattern = row.domain.toLowerCase().trim();
-    const type = row.policy_type || "EXACT";
+    const pattern = (row.domain || "").toLowerCase().trim();
+    const type = (row.policy_type || (pattern.startsWith("*.") ? "WILDCARD" : "EXACT")).toUpperCase().trim();
 
-    if (type === "EXACT" && domain === pattern) {
-      return true;
-    }
-    if (type === "WILDCARD" || pattern.startsWith("*.")) {
-      const suffix = pattern.replace(/^\*\./, "");
-      if (domain.endsWith(suffix) || domain === suffix) {
+    if (type === "EXACT") {
+      if (domain === pattern) {
+        return true;
+      }
+    } else if (type === "WILDCARD" || pattern.startsWith("*.")) {
+      const suffix = pattern.startsWith("*.") ? pattern.slice(2) : pattern;
+      if (domain === suffix || domain.endsWith("." + suffix)) {
         return true;
       }
     }

@@ -1,7 +1,8 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import app from "../index";
-import { db } from "../db";
+import { db, initDB } from "../db";
 import { calculateHIndex } from "../routes/metrics";
+import { verifyToken, signToken } from "../middleware";
 
 describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
   let tokenUser1: string;
@@ -17,6 +18,30 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
   const testEmail2 = `author.two.${Date.now()}@gmail.com`;
   const wildcardEmail = `researcher.${Date.now()}@oxford.ac.uk`;
   const forbiddenEmail = `unauthorized.${Date.now()}@untrusted-domain.org`;
+
+  beforeAll(() => {
+    initDB();
+    // Insert a seed unowned citation with author Alice Smith if not already present
+    const existingAlice = db.prepare("SELECT id FROM citations WHERE authors LIKE '%Alice%' AND authors LIKE '%Smith%'").get();
+    if (!existingAlice) {
+      db.prepare(`
+        INSERT INTO citations (id, title, authors, year, journal_or_publisher, volume, issue, pages, doi, pub_type, abstract)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        "test-alice-cit-1",
+        "Quantum Information Processing & Distributed Ledger Protocols",
+        JSON.stringify([{ firstName: "Alice", lastName: "Smith" }, { firstName: "Bob", lastName: "Jones" }]),
+        2025,
+        "ACM Transactions on Quantum Computing",
+        "12",
+        "3",
+        "101-118",
+        "10.1145/3600001",
+        "article",
+        "This paper analyzes quantum key distribution protocols."
+      );
+    }
+  });
 
   afterAll(() => {
     // Cleanup temporary test records created during test execution
@@ -39,6 +64,7 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     if (domainPolicyId) {
       db.prepare("DELETE FROM whitelisted_domains WHERE id = ?").run(domainPolicyId);
     }
+    db.prepare("DELETE FROM citations WHERE id = 'test-alice-cit-1'").run();
   });
 
   test("GET /api/health returns operational status", async () => {
@@ -59,6 +85,26 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toContain("is not in the active whitelist");
+  });
+
+  test("Registration fails for domain whitelist suffix bypass attempts", async () => {
+    const bypassAttempts = [
+      `attacker@evilbogazici.edu.tr`,
+      `attacker@fakeac.uk`,
+      `attacker@bogazici.edu.tr.evil.com`,
+      `attacker@notgmail.com`,
+    ];
+
+    for (const email of bypassAttempts) {
+      const res = await app.fetch(
+        new Request("http://localhost/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password: "password123" }),
+        })
+      );
+      expect(res.status).toBe(403);
+    }
   });
 
   test("Registration succeeds for Wildcard Domain policy (*.ac.uk)", async () => {
@@ -117,6 +163,31 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     expect(body.token).toBeDefined();
     tokenUser2 = body.token;
     user2Id = body.user.id;
+  });
+
+  test("JWT timing-safe verification and signature tampering protection", () => {
+    const validToken = signToken({
+      id: "test-user-1",
+      email: "test@bogazici.edu.tr",
+      firstName: "Test",
+      lastName: "User",
+      role: "user",
+    });
+    expect(verifyToken(validToken)).not.toBeNull();
+
+    // Tampered token payload
+    const parts = validToken.split(".");
+    const tamperedPayload = Buffer.from(JSON.stringify({ id: "admin-id", role: "admin" })).toString("base64url");
+    const tamperedToken = `${parts[0]}.${tamperedPayload}.${parts[2]}`;
+    expect(verifyToken(tamperedToken)).toBeNull();
+
+    // Tampered signature
+    const invalidSigToken = `${parts[0]}.${parts[1]}.invalidSignatureHere`;
+    expect(verifyToken(invalidSigToken)).toBeNull();
+
+    // Malformed token
+    expect(verifyToken("invalid.token")).toBeNull();
+    expect(verifyToken("")).toBeNull();
   });
 
   test("User Profile Update (PUT /api/auth/profile)", async () => {
@@ -215,7 +286,7 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     citation2Id = body.citationId;
   });
 
-  test("Multi-Facet Filtering (author, year, journal, sortBy)", async () => {
+  test("Multi-Facet Filtering (author, year, journal, sortBy) & N+1 batch ownership check", async () => {
     const res = await app.fetch(
       new Request("http://localhost/api/citations?author=Aydin&year=2025&journal=Applied%20Sciences&sortBy=year&sortOrder=DESC", {
         headers: { Authorization: `Bearer ${tokenUser1}` },
@@ -224,6 +295,8 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.citations).toBeDefined();
+    expect(body.citations.length).toBeGreaterThan(0);
+    expect(body.citations[0].isOwner).toBe(true);
   });
 
   test("Profile Resolution API (Registered User Profile)", async () => {
@@ -279,7 +352,31 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     expect(res.status).toBe(403);
   });
 
-  test("User 2 claims ownership of Citation 1 -> User 2 can now edit it", async () => {
+  test("IDOR Prevention: User 2 CANNOT claim User 1's owned citation", async () => {
+    const claimRes = await app.fetch(
+      new Request(`http://localhost/api/citations/${citation1Id}/claim`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenUser2}` },
+      })
+    );
+    expect(claimRes.status).toBe(403);
+    const body = await claimRes.json();
+    expect(body.error).toContain("Forbidden");
+  });
+
+  test("User 1 unlinks citation -> transitions to Unowned state", async () => {
+    const unlink1 = await app.fetch(
+      new Request(`http://localhost/api/citations/${citation1Id}/ownership`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${tokenUser1}` },
+      })
+    );
+    expect(unlink1.status).toBe(200);
+    const body = await unlink1.json();
+    expect(body.isNowUnowned).toBe(true);
+  });
+
+  test("User 2 can now claim unowned Citation 1 -> User 2 can now edit it", async () => {
     const claimRes = await app.fetch(
       new Request(`http://localhost/api/citations/${citation1Id}/claim`, {
         method: "POST",
@@ -303,15 +400,7 @@ describe("CiteSphere API & Industry Standards Integration Test Suite", () => {
     expect(editRes.status).toBe(200);
   });
 
-  test("Unlinking citation by all owners transitions it to Unowned state", async () => {
-    const unlink1 = await app.fetch(
-      new Request(`http://localhost/api/citations/${citation1Id}/ownership`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${tokenUser1}` },
-      })
-    );
-    expect(unlink1.status).toBe(200);
-
+  test("User 2 unlinks Citation 1 -> transitions back to Unowned state", async () => {
     const unlink2 = await app.fetch(
       new Request(`http://localhost/api/citations/${citation1Id}/ownership`, {
         method: "DELETE",
