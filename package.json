@@ -7,19 +7,27 @@
     "dev:client": "bun --bun vite client",
     "build": "bun --bun vite build client",
     "seed": "bun run server/seed.ts",
-    "test": "bun test server/tests"
+    "test": "bun test server/tests",
+    "test:client": "vitest run",
+    "test:client:watch": "vitest",
+    "test:all": "bun test server/tests && vitest run"
   },
   "dependencies": {
     "hono": "^4.7.2"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/bun": "latest",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^30.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.3",
-    "vite": "^6.1.0"
+    "vite": "^6.1.0",
+    "vitest": "^4.1.11"
   }
 }

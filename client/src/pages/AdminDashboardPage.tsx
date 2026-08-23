@@ -706,10 +706,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 {duplicates.map((dup, idx) => (
-                  <div key={idx} style={{ padding: "1rem", background: "var(--bg-main)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)" }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{dup.title}</div>
+                  <div key={dup.id || idx} style={{ padding: "1rem", background: "var(--bg-main)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{dup.sourceTitle || dup.title}</div>
                     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                      Duplicate occurrences: <span style={{ fontWeight: 800, color: "var(--accent-rose)" }}>{dup.duplicateCount}</span>
+                      {dup.matchReason ? (
+                        <span>Match Reason: <span style={{ fontWeight: 800, color: "var(--accent-rose)" }}>{dup.matchReason}</span>{dup.targetTitle ? ` (Target: ${dup.targetTitle})` : ""}</span>
+                      ) : (
+                        <span>Duplicate occurrences: <span style={{ fontWeight: 800, color: "var(--accent-rose)" }}>{dup.duplicateCount}</span></span>
+                      )}
                     </div>
                   </div>
                 ))}
