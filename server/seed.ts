@@ -1,84 +1,12 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { db, initDB } from "./db";
-import { parseAuthorString, parseRawAuthorsList, type Author } from "./formatter";
+import { parseAuthorString, parseRawAuthorsList, parseRawCitationString, type Author } from "./formatter";
 
 interface RawFaculty {
   name: string;
   email: string;
   citations?: Record<string, string[] | any>;
-}
-
-// Simple raw citation string parser
-function parseRawCitationString(raw: string): {
-  title: string;
-  authors: Author[];
-  year: number | null;
-  journal: string | null;
-  volume: string | null;
-  issue: string | null;
-  pages: string | null;
-  doi: string | null;
-} {
-  const str = raw.trim();
-  
-  // Extract Year e.g. (2025) or (2024)
-  let year: number | null = null;
-  const yearMatch = str.match(/\((\d{4})\)/);
-  if (yearMatch) {
-    year = parseInt(yearMatch[1], 10);
-  }
-
-  // Extract DOI if present
-  let doi: string | null = null;
-  const doiMatch = str.match(/(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)/i);
-  if (doiMatch) {
-    doi = doiMatch[1];
-  }
-
-  // Split by year (YEAR). to get Authors and Rest
-  let authors: Author[] = [];
-  let title = str;
-  let journal: string | null = null;
-  let volume: string | null = null;
-  let issue: string | null = null;
-  let pages: string | null = null;
-
-  if (yearMatch && str.includes(`(${yearMatch[1]})`)) {
-    const parts = str.split(`(${yearMatch[1]})`);
-    const authorsPart = parts[0].trim();
-    const restPart = parts.slice(1).join(`(${yearMatch[1]})`).trim();
-
-    // Parse authors
-    authors = parseRawAuthorsList(authorsPart);
-
-    // Rest part contains Title. Journal, Vol(Issue), Pages.
-    // Strip trailing doi or url
-    let cleanedRest = restPart.replace(/https?:\/\/\S+/gi, "").replace(/Doi:\s*\S+/gi, "").trim();
-    if (cleanedRest.startsWith(".")) cleanedRest = cleanedRest.slice(1).trim();
-
-    const restDotSplits = cleanedRest.split(".").map((s) => s.trim()).filter(Boolean);
-    if (restDotSplits.length > 0) {
-      title = restDotSplits[0];
-    }
-    if (restDotSplits.length > 1) {
-      journal = restDotSplits[1];
-    }
-
-    // Try to extract Vol, Issue, Pages e.g. 6(8), 908 or 14(19), 8858
-    const volIssuePageMatch = cleanedRest.match(/(\d+)\s*\(([^)]+)\)\s*,\s*([\d–-]+)/);
-    if (volIssuePageMatch) {
-      volume = volIssuePageMatch[1];
-      issue = volIssuePageMatch[2];
-      pages = volIssuePageMatch[3];
-    }
-  }
-
-  if (authors.length === 0) {
-    authors = [{ lastName: "Unknown Author" }];
-  }
-
-  return { title, authors, year, journal, volume, issue, pages, doi };
 }
 
 export function runSeed() {
