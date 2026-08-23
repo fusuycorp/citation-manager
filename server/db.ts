@@ -1,12 +1,15 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
 
-const dbPath = join(import.meta.dir, "../citation_manager.sqlite");
+const isTest = process.env.NODE_ENV === "test" || process.env.DB_PATH === ":memory:";
+const dbPath = isTest ? ":memory:" : (process.env.DB_PATH || join(import.meta.dir, "../citation_manager.sqlite"));
 export const db = new Database(dbPath, { create: true });
 
 // Enable foreign keys & WAL mode for performance
 db.run("PRAGMA foreign_keys = ON;");
-db.run("PRAGMA journal_mode = WAL;");
+if (!isTest) {
+  db.run("PRAGMA journal_mode = WAL;");
+}
 
 // Initialize Database Schema
 export function initDB() {
@@ -159,6 +162,26 @@ export function initDB() {
       ON CONFLICT(email) DO NOTHING
     `).run(adminId, adminEmail, defaultPasswordHash);
   }
+}
+
+// Reset Database completely for clean test isolation
+export function resetDB() {
+  db.run("PRAGMA foreign_keys = OFF;");
+  const tables = [
+    "system_audit_logs",
+    "user_preferences",
+    "citation_duplicates",
+    "invitations",
+    "user_citations",
+    "citations",
+    "whitelisted_domains",
+    "users",
+  ];
+  for (const t of tables) {
+    db.run(`DROP TABLE IF EXISTS ${t};`);
+  }
+  db.run("PRAGMA foreign_keys = ON;");
+  initDB();
 }
 
 // Run DB Init
