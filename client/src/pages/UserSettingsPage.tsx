@@ -1,23 +1,36 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface UserSettingsPageProps {
-  user: any;
-  token: string | null;
+  user?: any;
+  token?: string | null;
   showToast: (msg: string) => void;
-  onUpdateUser: (updatedUser: any) => void;
+  onUpdateUser?: (updatedUser: any) => void;
   onBackToDashboard: () => void;
 }
 
 export const UserSettingsPage: React.FC<UserSettingsPageProps> = ({
-  user,
-  token,
+  user: propUser,
+  token: propToken,
   showToast,
-  onUpdateUser,
+  onUpdateUser: propOnUpdateUser,
   onBackToDashboard,
 }) => {
+  const { user: authUser, token: authToken, updateUser: authUpdateUser } = useAuth();
+  const user = propUser !== undefined ? propUser : authUser;
+  const token = propToken !== undefined ? propToken : authToken;
+  const onUpdateUser = propOnUpdateUser || authUpdateUser;
+
   // Profile State
-  const [firstName, setFirstName] = useState(user.firstName || "");
-  const [lastName, setLastName] = useState(user.lastName || "");
+  const [firstName, setFirstName] = useState(user?.firstName || "");
+  const [lastName, setLastName] = useState(user?.lastName || "");
+
+  useEffect(() => {
+    if (user) {
+      setFirstName(user.firstName || "");
+      setLastName(user.lastName || "");
+    }
+  }, [user]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 

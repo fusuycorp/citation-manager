@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface AuthPageProps {
   onSuccess: (user: any, token: string) => void;
@@ -7,6 +8,7 @@ interface AuthPageProps {
 }
 
 export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, showToast, onBackToDashboard }) => {
+  const { login } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,7 +37,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, showToast, onBack
         throw new Error(data.error || "Authentication failed");
       }
 
-      onSuccess(data.user, data.token);
+      login(data.user, data.token);
+      if (onSuccess) {
+        onSuccess(data.user, data.token);
+      }
       showToast(tab === "login" ? `Welcome back, ${data.user.firstName || data.user.email}!` : "Registration successful!");
 
       if (data.autoClaimedCount && data.autoClaimedCount > 0) {

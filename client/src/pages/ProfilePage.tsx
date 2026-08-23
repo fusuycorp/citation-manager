@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 interface ProfilePageProps {
   identifier: string;
-  token: string | null;
-  currentUserId: string | null;
+  token?: string | null;
+  currentUserId?: string | null;
   onBackToDashboard: () => void;
   onNavigateProfile: (idOrName: string) => void;
   onFilterByAuthor: (authorName: string) => void;
@@ -12,13 +13,16 @@ interface ProfilePageProps {
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
   identifier,
-  token,
-  currentUserId,
+  token: propToken,
+  currentUserId: propCurrentUserId,
   onBackToDashboard,
   onNavigateProfile,
   onFilterByAuthor,
   showToast,
 }) => {
+  const { user: authUser, token: authToken } = useAuth();
+  const token = propToken !== undefined ? propToken : authToken;
+  const currentUserId = propCurrentUserId !== undefined ? propCurrentUserId : (authUser?.id || null);
   const [profileData, setProfileData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 

@@ -6,7 +6,7 @@ interface WelcomeModalProps {
   onOpenTutorial: () => void;
 }
 
-export const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, onOpenTutorial }) => {
+export const WelcomeModal: React.FC<WelcomeModalProps> = React.memo(({ isOpen, onClose, onOpenTutorial }) => {
   if (!isOpen) return null;
 
   return (
@@ -24,7 +24,7 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, onO
             background: "linear-gradient(135deg, #2563eb, #7c3aed)",
             display: "inline-flex",
             alignItems: "center",
-            justify: "center",
+            justifyContent: "center",
             color: "white",
             fontSize: "2rem",
             marginBottom: "1.25rem",
@@ -90,4 +90,4 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, onO
       </div>
     </div>
   );
-};
+});
